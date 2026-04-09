@@ -1,0 +1,1607 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NENE IOS - Tienda Digital</title>
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs, query, orderBy, where } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCOs7pOfT8zPk0URs6wfKGuqH_7jCrMFcc",
+            authDomain: "nene-ios.firebaseapp.com",
+            projectId: "nene-ios",
+            storageBucket: "nene-ios.appspot.com",
+            messagingSenderId: "718214960003",
+            appId: "1:718214960003:web:6a3cdb51c57948c7075cb6",
+            measurementId: "G-539NWBQJRZ"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Wait for DOM to load
+        document.addEventListener('DOMContentLoaded', function() {
+            const registerForm = document.getElementById('registerForm');
+            const loginForm = document.getElementById('loginForm');
+            const authMessage = document.getElementById('authMessage');
+            const showRegister = document.getElementById('showRegister');
+            const showLogin = document.getElementById('showLogin');
+
+            function switchForm(formType) {
+                const registerFormEl = document.getElementById('registerForm');
+                const loginFormEl = document.getElementById('loginForm');
+                if (formType === 'register') {
+                    registerFormEl.classList.add('active');
+                    loginFormEl.classList.remove('active');
+                    authMessage.textContent = 'Regístrate con tu nombre, gmail y teléfono.';
+                } else {
+                    registerFormEl.classList.remove('active');
+                    loginFormEl.classList.add('active');
+                    authMessage.textContent = 'Ingresa con tu usuario o gmail y contraseña.';
+                }
+                authMessage.style.color = '#ffffff';
+            }
+
+            showRegister.addEventListener('click', () => switchForm('register'));
+            showLogin.addEventListener('click', () => switchForm('login'));
+
+            async function saveUserData(uid, data) {
+                try {
+                    await setDoc(doc(db, 'users', uid), data);
+                } catch (error) {
+                    console.error('Error saving user data:', error);
+                }
+            }
+
+            async function getUserData(uid) {
+                try {
+                    const docSnap = await getDoc(doc(db, 'users', uid));
+                    if (docSnap.exists()) {
+                        return docSnap.data();
+                    } else {
+                        return null;
+                    }
+                } catch (error) {
+                    console.error('Error getting user data:', error);
+                    return null;
+                }
+            }
+
+            registerForm.addEventListener('submit', async function(event) {
+                event.preventDefault();
+                const email = document.getElementById('email').value.trim();
+                const password = document.getElementById('password').value;
+                const name = document.getElementById('name').value.trim();
+                const countryCode = document.getElementById('countryCode').value;
+                const phone = document.getElementById('phone').value.trim();
+
+                try {
+                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    const user = userCredential.user;
+                    await saveUserData(user.uid, {
+                        uid: user.uid,
+                        name,
+                        email,
+                        countryCode,
+                        phone,
+                        createdAt: new Date().toISOString()
+                    });
+                    showMainContent(name, false, email);
+                } catch (error) {
+                    console.error(error);
+
+                    if (error.code === 'auth/email-already-in-use') {
+                        authMessage.textContent = 'Ese correo ya está registrado.';
+                    } else if (error.code === 'auth/weak-password') {
+                        authMessage.textContent = 'La contraseña debe tener al menos 6 caracteres.';
+                    } else {
+                        authMessage.textContent = 'Ocurrió un error. Intenta de nuevo.';
+                    }
+
+                    authMessage.style.color = '#ff7777';
+                }
+            });
+
+            loginForm.addEventListener('submit', async function(event) {
+                event.preventDefault();
+                const loginUser = document.getElementById('loginUser').value.trim();
+                const loginPassword = document.getElementById('loginPassword').value;
+
+                try {
+                    const userCredential = await signInWithEmailAndPassword(auth, loginUser, loginPassword);
+                    const user = userCredential.user;
+                    const userData = await getUserData(user.uid);
+
+                    if (userData) {
+                        showMainContent(userData.name || user.email, userData.isAdmin === true, user.email);
+                    } else {
+                        await saveUserData(user.uid, {
+                            uid: user.uid,
+                            name: user.displayName || user.email.split('@')[0],
+                            email: user.email,
+                            countryCode: '',
+                            phone: '',
+                            createdAt: new Date().toISOString()
+                        });
+
+                        showMainContent(user.displayName || user.email.split('@')[0], false, user.email);
+                    }
+                } catch (error) {
+                    console.error(error);
+
+                    if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                        authMessage.textContent = 'Correo o contraseña incorrectos.';
+                    } else {
+                        authMessage.textContent = 'Ocurrió un error. Intenta de nuevo.';
+                    }
+
+                    authMessage.style.color = '#ff7777';
+                }
+            });
+
+            const ADMIN_EMAILS = ['admin@x7sebaspanel.com', 'neneios@gmail.com'];
+            const ADMIN_WHATSAPP = '18098642863';
+
+            function showMainContent(username, isAdmin, email) {
+                if (email && ADMIN_EMAILS.includes(email.toLowerCase())) isAdmin = true;
+                document.querySelector('header p').textContent = `Bienvenido, ${username}`;
+                document.getElementById('login').style.display = 'none';
+                document.getElementById('mainContent').style.display = 'block';
+                document.getElementById('logoutBtn').style.display = 'block';
+                if (auth.currentUser) loadUserHistorial(auth.currentUser.uid);
+                const adminPanel = document.getElementById('admin-panel');
+                if (adminPanel) {
+                    adminPanel.style.display = isAdmin ? 'block' : 'none';
+                    if (isAdmin) loadComprobantes();
+                }
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            const logoutBtn = document.getElementById('logoutBtn');
+            logoutBtn.addEventListener('click', async () => {
+                try {
+                    await signOut(auth);
+                } catch (error) {
+                    console.error('Error signing out:', error);
+                }
+            });
+
+            // Check auth state on load
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    let userData = await getUserData(user.uid);
+
+                    if (!userData) {
+                        userData = {
+                            uid: user.uid,
+                            name: user.displayName || user.email.split('@')[0],
+                            email: user.email,
+                            countryCode: '',
+                            phone: '',
+                            createdAt: new Date().toISOString()
+                        };
+
+                        await saveUserData(user.uid, userData);
+                    }
+
+                    showMainContent(userData.name || user.email, userData.isAdmin === true, user.email);
+                } else {
+                    switchForm('login');
+                    document.getElementById('logoutBtn').style.display = 'none';
+                    document.getElementById('login').style.display = 'block';
+                    document.getElementById('mainContent').style.display = 'none';
+                    const historial = document.getElementById('userHistorial');
+                    if (historial) historial.innerHTML = '';
+                }
+            });
+
+            function normalizePhone(raw) {
+                return (raw || '').toString().replace(/[^\d]/g, '');
+            }
+
+            function formatPhone(countryCode, phone) {
+                const cleanCode = normalizePhone(countryCode);
+                const cleanPhone = normalizePhone(phone);
+                return `${cleanCode}${cleanPhone}`;
+            }
+
+            function withTimeout(promise, ms) {
+                return Promise.race([
+                    promise,
+                    new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error('timeout')), ms);
+                    })
+                ]);
+            }
+
+            function compressImageToDataUrl(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const image = new Image();
+                        image.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const maxWidth = 900;
+                            const scale = Math.min(1, maxWidth / image.width);
+                            canvas.width = Math.round(image.width * scale);
+                            canvas.height = Math.round(image.height * scale);
+                            const context = canvas.getContext('2d');
+                            if (!context) {
+                                reject(new Error('No se pudo procesar la imagen.'));
+                                return;
+                            }
+                            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+                            let quality = 0.82;
+                            let dataUrl = canvas.toDataURL('image/jpeg', quality);
+                            while (dataUrl.length > 850000 && quality > 0.35) {
+                                quality -= 0.08;
+                                dataUrl = canvas.toDataURL('image/jpeg', quality);
+                            }
+
+                            if (dataUrl.length > 850000) {
+                                reject(new Error('La imagen sigue siendo muy grande. Usa una captura mas liviana.'));
+                                return;
+                            }
+
+                            resolve(dataUrl);
+                        };
+                        image.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+                        image.src = reader.result;
+                    };
+                    reader.onerror = () => reject(new Error('No se pudo cargar el archivo.'));
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            function getUploadErrorMessage(error) {
+                if (window.location.protocol === 'file:') {
+                    return 'Abre la pagina con Live Server o Firebase Hosting. Desde archivo local puede fallar Firebase.';
+                }
+                if (error && error.message === 'timeout') {
+                    return 'La subida tardó demasiado. Revisa tu internet e intenta otra vez.';
+                }
+                if (error && error.code === 'permission-denied') {
+                    return 'Firestore no tiene permisos para guardar el comprobante.';
+                }
+                if (error && error.message) {
+                    return `Error al subir: ${error.message}`;
+                }
+                return 'Error al subir. Intenta de nuevo.';
+            }
+
+            // Upload comprobante
+            const subirComprobanteBtn = document.getElementById('subirComprobanteBtn');
+            if (subirComprobanteBtn) {
+                subirComprobanteBtn.addEventListener('click', async () => {
+                    const file = document.getElementById('comprobanteFile').files[0];
+                    const producto = document.getElementById('comprobanteProducto').value;
+                    const msg = document.getElementById('comprobanteMsg');
+                    if (!file) {
+                        msg.textContent = 'Selecciona una imagen.';
+                        msg.style.color = '#ff7777';
+                        return;
+                    }
+                    if (!file.type || !file.type.startsWith('image/')) {
+                        msg.textContent = 'El comprobante debe ser una imagen.';
+                        msg.style.color = '#ff7777';
+                        return;
+                    }
+                    if (file.size > 10 * 1024 * 1024) {
+                        msg.textContent = 'La imagen pesa demasiado. Maximo 10 MB.';
+                        msg.style.color = '#ff7777';
+                        return;
+                    }
+                    const user = auth.currentUser;
+                    if (!user) {
+                        msg.textContent = 'Inicia sesion para subir tu comprobante.';
+                        msg.style.color = '#ff7777';
+                        return;
+                    }
+                    try {
+                        subirComprobanteBtn.disabled = true;
+                        msg.textContent = 'Subiendo...';
+                        msg.style.color = '#66d9ff';
+                        const imageDataUrl = await withTimeout(compressImageToDataUrl(file), 20000);
+                        const headerP = document.querySelector('header p');
+                        const userName = headerP ? headerP.textContent.replace('Bienvenido, ', '') : user.email;
+                        const userData = await getUserData(user.uid);
+                        const userCountryCode = userData && userData.countryCode ? userData.countryCode : '';
+                        const userPhone = userData && userData.phone ? userData.phone : '';
+                        const userPhoneFull = formatPhone(userCountryCode, userPhone);
+                        await withTimeout(addDoc(collection(db, 'comprobantes'), {
+                            uid: user.uid,
+                            userName,
+                            userEmail: user.email,
+                            producto,
+                            imageUrl: imageDataUrl,
+                            userCountryCode,
+                            userPhone,
+                            userPhoneFull,
+                            timestamp: new Date().toISOString(),
+                            status: 'pendiente'
+                        }), 20000);
+                        msg.textContent = '\u2705 Comprobante enviado correctamente.';
+                        msg.style.color = '#25d366';
+                        document.getElementById('comprobanteFile').value = '';
+                        loadUserHistorial(user.uid);
+                    } catch (error) {
+                        console.error(error);
+                        msg.textContent = getUploadErrorMessage(error);
+                        msg.style.color = '#ff7777';
+                    } finally {
+                        subirComprobanteBtn.disabled = false;
+                    }
+                });
+            }
+
+            async function loadComprobantes() {
+                const container = document.getElementById('adminComprobantes');
+                if (!container) return;
+                container.innerHTML = '<p style="color:#66d9ff">Cargando...</p>';
+                function esc(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+                try {
+                    const q = query(collection(db, 'comprobantes'), orderBy('timestamp', 'desc'));
+                    const snapshot = await getDocs(q);
+                    if (snapshot.empty) { container.innerHTML = '<p>No hay comprobantes a\u00FAn.</p>'; return; }
+                    container.innerHTML = '';
+                    snapshot.forEach(docSnap => {
+                        const d = docSnap.data();
+                        const estado = d.status || 'pendiente';
+                        const card = document.createElement('div');
+                        card.className = 'comprobante-card';
+                        const tel = d.userPhoneFull || formatPhone(d.userCountryCode, d.userPhone);
+                        const actionButtons = estado === 'aprobado'
+                            ? '<p style="color:#25d366; font-weight:700;">Entrega realizada</p>'
+                            : estado === 'rechazado'
+                                ? '<p style="color:#ff7777; font-weight:700;">Comprobante rechazado</p>'
+                                : `<div class="admin-actions">
+                                    <button class="btn-aprobar" onclick="aprobarYEntregar('${docSnap.id}')">Aceptar comprobante</button>
+                                    <button class="btn-rechazar" onclick="rechazarComprobante('${docSnap.id}')">Rechazar comprobante</button>
+                                   </div>`;
+                        card.innerHTML = `
+                            <p><strong>Usuario:</strong> ${esc(d.userName)} (${esc(d.userEmail)})</p>
+                            <p><strong>Producto:</strong> ${esc(d.producto)}</p>
+                            <p><strong>Telefono:</strong> ${esc(tel || 'No registrado')}</p>
+                            <p><strong>Fecha:</strong> ${esc(new Date(d.timestamp).toLocaleString('es-DO'))}</p>
+                            <a href="${esc(d.imageUrl)}" target="_blank" rel="noopener noreferrer"><img src="${esc(d.imageUrl)}" alt="Comprobante" class="comprobante-img"></a>
+                            <p class="comp-estado">Estado: ${esc(estado)}</p>
+                            ${actionButtons}
+                        `;
+                        container.appendChild(card);
+                    });
+                } catch (error) {
+                    console.error(error);
+                    container.innerHTML = '<p style="color:#ff7777">Error al cargar.</p>';
+                }
+            }
+
+            async function loadUserHistorial(uid) {
+                const container = document.getElementById('userHistorial');
+                if (!container || !uid) return;
+                container.innerHTML = '<p style="color:#66d9ff">Cargando historial...</p>';
+                function esc(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+                try {
+                    const q = query(collection(db, 'comprobantes'), where('uid', '==', uid));
+                    const snapshot = await getDocs(q);
+                    if (snapshot.empty) {
+                        container.innerHTML = '<p>No tienes compras registradas todavía.</p>';
+                        return;
+                    }
+                    const rows = [];
+                    snapshot.forEach(docSnap => rows.push(docSnap.data()));
+                    rows.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    container.innerHTML = '';
+                    rows.forEach(d => {
+                        const estado = d.status || 'pendiente';
+                        const estadoClass = estado === 'aprobado' ? 'ok' : estado === 'rechazado' ? 'rej' : 'wait';
+                        let entregaBlock = '';
+                        if (estado === 'aprobado') {
+                            const waMsg = `Hola, soy ${d.userName || 'usuario'} y ya fue aceptado mi pago del producto ${d.producto || ''}. Quiero la entrega.`;
+                            const waUrl = `https://wa.me/${ADMIN_WHATSAPP}?text=${encodeURIComponent(waMsg)}`;
+                            entregaBlock = `
+                                <p class="historial-aprobado">Tu pago fue aceptado.</p>
+                                <a class="btn-entrega" href="${waUrl}" target="_blank" rel="noopener noreferrer">Solicitar entrega por WhatsApp</a>
+                            `;
+                        }
+                        const card = document.createElement('div');
+                        card.className = 'historial-card';
+                        card.innerHTML = `
+                            <p><strong>Producto:</strong> ${esc(d.producto)}</p>
+                            <p><strong>Fecha:</strong> ${esc(new Date(d.timestamp).toLocaleString('es-DO'))}</p>
+                            <p class="historial-estado ${estadoClass}">Estado: ${esc(estado)}</p>
+                            ${entregaBlock}
+                        `;
+                        container.appendChild(card);
+                    });
+                } catch (error) {
+                    console.error(error);
+                    container.innerHTML = '<p style="color:#ff7777">No se pudo cargar tu historial.</p>';
+                }
+            }
+
+            window.aprobarYEntregar = async function (comprobanteId) {
+                try {
+                    const docRef = doc(db, 'comprobantes', comprobanteId);
+                    const docSnap = await getDoc(docRef);
+                    if (!docSnap.exists()) {
+                        alert('No se encontro el comprobante.');
+                        return;
+                    }
+                    await updateDoc(docRef, {
+                        status: 'aprobado',
+                        approvedAt: new Date().toISOString()
+                    });
+                    await loadComprobantes();
+                } catch (error) {
+                    console.error(error);
+                    alert('No se pudo aprobar el comprobante.');
+                }
+            };
+
+            window.rechazarComprobante = async function (comprobanteId) {
+                try {
+                    const ok = window.confirm('Confirmas rechazar este comprobante?');
+                    if (!ok) return;
+                    const docRef = doc(db, 'comprobantes', comprobanteId);
+                    await updateDoc(docRef, {
+                        status: 'rechazado',
+                        rejectedAt: new Date().toISOString()
+                    });
+                    await loadComprobantes();
+                } catch (error) {
+                    console.error(error);
+                    alert('No se pudo rechazar el comprobante.');
+                }
+            };
+        });
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Orbitron', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #001122 0%, #003366 50%, #004488 100%);
+            background-attachment: fixed;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        header {
+            background: linear-gradient(45deg, #003366, #004488, #0066cc);
+            padding: 40px 20px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 170, 255, 0.5);
+            position: relative;
+            overflow: hidden;
+        }
+
+        header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="2" fill="rgba(255,255,255,0.1)"/></svg>') repeat;
+            animation: twinkle 3s infinite;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 3em;
+            color: #ffffff;
+            text-shadow: 0 0 20px #00aaff, 0 0 40px #00aaff, 0 0 60px #00aaff;
+            animation: glow 2s ease-in-out infinite alternate;
+            position: relative;
+            z-index: 1;
+        }
+
+        h2 {
+            font-size: 2em;
+            color: #00aaff;
+            text-shadow: 0 0 10px #00aaff;
+            margin-bottom: 20px;
+        }
+
+        section {
+            padding: 40px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .products {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 30px;
+        }
+
+        .product {
+            background: linear-gradient(145deg, #004488, #0066cc);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            border: 2px solid #00aaff;
+            box-shadow: 0 10px 30px rgba(0, 170, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        .product::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                linear-gradient(90deg,
+                    transparent 0%,
+                    rgba(102, 217, 255, 0) 10%,
+                    rgba(102, 217, 255, 0.6) 25%,
+                    rgba(102, 217, 255, 0.8) 50%,
+                    rgba(102, 217, 255, 0.6) 75%,
+                    rgba(102, 217, 255, 0) 90%,
+                    transparent 100%
+                ),
+                linear-gradient(45deg,
+                    transparent 0%,
+                    rgba(102, 217, 255, 0.5) 35%,
+                    rgba(102, 217, 255, 0.7) 50%,
+                    rgba(102, 217, 255, 0.5) 65%,
+                    transparent 100%
+                ),
+                linear-gradient(135deg,
+                    transparent 0%,
+                    rgba(102, 217, 255, 0.5) 35%,
+                    rgba(102, 217, 255, 0.7) 50%,
+                    rgba(102, 217, 255, 0.5) 65%,
+                    transparent 100%
+                );
+            border-radius: 15px;
+            z-index: 0;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            pointer-events: none;
+        }
+
+        .product:active::before {
+            opacity: 1;
+        }
+
+        .product:hover {
+            transform: translateY(-10px) scale(1.05);
+            box-shadow: 0 20px 40px rgba(0, 170, 255, 0.5);
+        }
+
+
+
+        .product:focus,
+        .product:active,
+        .product:focus-within,
+        .featured-card:focus,
+        .featured-card:active,
+        .featured-card:focus-within {
+            outline: none;
+            transform: none;
+        }
+
+        .product:active,
+        .product:focus-within {
+            box-shadow: 0 10px 30px rgba(0, 170, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .featured-card:active,
+        .featured-card:focus-within {
+            box-shadow: 0 0 20px rgba(102, 217, 255, 0.6), 0 0 45px rgba(0, 170, 255, 0.35);
+        }
+
+        .product:active::before,
+        .product:focus-within::before {
+            opacity: 0.18;
+            animation: none;
+        }
+
+        .featured-card:active::before,
+        .featured-card:focus-within::before {
+            opacity: 0.22;
+            animation: none;
+        }
+
+        .product img,
+        .product video {
+            max-width: 100%;
+            height: 180px;
+            object-fit: cover;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border: 2px solid #00aaff;
+            box-shadow: 0 0 15px rgba(0, 170, 255, 0.5);
+        }
+
+        .product button,
+        .product video,
+        .product h3,
+        .product p {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .product h3 {
+            color: #ffffff;
+            text-shadow: 0 0 10px #00aaff;
+            margin: 10px 0;
+        }
+
+        .product p {
+            margin: 5px 0;
+        }
+
+        .featured-card {
+            border-color: #66d9ff;
+            box-shadow: 
+                0 0 20px rgba(102, 217, 255, 0.6), 
+                0 0 45px rgba(0, 170, 255, 0.35);
+            animation: featuredPulse 2.6s ease-in-out infinite;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .featured-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                linear-gradient(90deg,
+                    transparent 0%,
+                    rgba(102, 217, 255, 0) 10%,
+                    rgba(102, 217, 255, 0.6) 25%,
+                    rgba(102, 217, 255, 0.8) 50%,
+                    rgba(102, 217, 255, 0.6) 75%,
+                    rgba(102, 217, 255, 0) 90%,
+                    transparent 100%
+                ),
+                linear-gradient(45deg,
+                    transparent 0%,
+                    rgba(102, 217, 255, 0.5) 35%,
+                    rgba(102, 217, 255, 0.7) 50%,
+                    rgba(102, 217, 255, 0.5) 65%,
+                    transparent 100%
+                ),
+                linear-gradient(135deg,
+                    transparent 0%,
+                    rgba(102, 217, 255, 0.5) 35%,
+                    rgba(102, 217, 255, 0.7) 50%,
+                    rgba(102, 217, 255, 0.5) 65%,
+                    transparent 100%
+                );
+            border-radius: 15px;
+            z-index: 0;
+            opacity: 0.22;
+            pointer-events: none;
+        }
+
+        .featured-card::after {
+            content: 'HOT';
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #001122;
+            background: linear-gradient(45deg, #66d9ff, #00aaff);
+            border-radius: 999px;
+            padding: 4px 10px;
+            box-shadow: 0 0 12px rgba(102, 217, 255, 0.8);
+            z-index: 10;
+        }
+
+        .featured-card:hover {
+            transform: translateY(-14px) scale(1.06);
+            box-shadow: 0 0 30px rgba(102, 217, 255, 0.85), 0 20px 45px rgba(0, 170, 255, 0.55);
+        }
+
+        .featured-card video {
+            outline: 2px solid rgba(102, 217, 255, 0.75);
+            outline-offset: 2px;
+            position: relative;
+            z-index: 2;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .product video:focus,
+        .product button:focus,
+        .product video:active,
+        .product button:active {
+            outline: none;
+        }
+
+        .testimonials {
+            background: linear-gradient(135deg, #002244, #003366);
+            border-radius: 20px;
+            margin: 40px 0;
+            padding: 20px;
+            box-shadow: 0 0 30px rgba(0, 170, 255, 0.2);
+        }
+
+        .testimonial {
+            margin: 20px 0;
+            padding: 20px;
+            background: linear-gradient(145deg, #004488, #0055aa);
+            border-radius: 15px;
+            border: 1px solid #00aaff;
+            box-shadow: 0 5px 15px rgba(0, 170, 255, 0.3);
+            transition: transform 0.3s ease;
+        }
+
+        .testimonial:hover {
+            transform: scale(1.02);
+        }
+
+        footer {
+            background: linear-gradient(45deg, #003366, #004488);
+            padding: 30px 20px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 170, 255, 0.5);
+        }
+
+        button {
+            background: linear-gradient(45deg, #00aaff, #0088cc);
+            color: #ffffff;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            text-transform: uppercase;
+            box-shadow: 0 0 15px rgba(0, 170, 255, 0.5);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+
+        button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 25px rgba(0, 170, 255, 0.8);
+        }
+
+        button:hover::before {
+            left: 100%;
+        }
+
+        @keyframes glow {
+            from { text-shadow: 0 0 20px #00aaff, 0 0 40px #00aaff, 0 0 60px #00aaff; }
+            to { text-shadow: 0 0 30px #00aaff, 0 0 50px #00aaff, 0 0 80px #00aaff; }
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes shine {
+            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+        }
+
+        @keyframes featuredPulse {
+            0%,
+            100% { box-shadow: 0 0 18px rgba(102, 217, 255, 0.45), 0 0 35px rgba(0, 170, 255, 0.25); }
+            50% { box-shadow: 0 0 28px rgba(102, 217, 255, 0.8), 0 0 55px rgba(0, 170, 255, 0.45); }
+        }
+
+        @keyframes raysSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 2em; }
+            .products { grid-template-columns: 1fr; }
+        }
+
+        @media (hover: none) {
+            .product:hover,
+            .featured-card:hover {
+                transform: none;
+                box-shadow: 0 10px 30px rgba(0, 170, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            }
+
+            .featured-card:hover {
+                box-shadow: 0 0 20px rgba(102, 217, 255, 0.6), 0 0 45px rgba(0, 170, 255, 0.35);
+            }
+
+            .product:hover::before,
+            .featured-card:hover::before {
+                opacity: 0.18;
+                animation: none;
+            }
+
+            .featured-card:hover::before {
+                opacity: 0.22;
+            }
+        }
+
+        #login {
+            background: linear-gradient(135deg, #002244, #003366);
+            padding: 40px 20px;
+            border-radius: 20px;
+            margin: 40px auto;
+            max-width: 500px;
+            box-shadow: 0 0 30px rgba(0, 170, 255, 0.3);
+            text-align: center;
+        }
+
+        #login h2 {
+            color: #00aaff;
+            text-shadow: 0 0 10px #00aaff;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            color: #ffffff;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #00aaff;
+            border-radius: 10px;
+            background: linear-gradient(145deg, #004488, #0066cc);
+            color: #ffffff;
+            font-size: 1em;
+            box-shadow: 0 0 10px rgba(0, 170, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            box-shadow: 0 0 20px rgba(0, 170, 255, 0.5);
+            transform: scale(1.02);
+        }
+
+        select {
+            background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 5"><polygon points="0,0 10,0 5,5" fill="%2300aaff"/></svg>');
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 10px;
+            padding-right: 30px;
+        }
+
+        #mainContent {
+            display: none;
+        }
+
+        .auth-toggle {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .auth-toggle button {
+            width: 100%;
+            max-width: 260px;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.95em;
+        }
+
+        .auth-form {
+            display: none;
+        }
+
+        .auth-form.active {
+            display: block;
+        }
+
+        .auth-message {
+            color: #ffffff;
+            margin-bottom: 20px;
+        }
+
+        /* Modal de pago */
+        .pay-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .pay-modal-overlay.active {
+            display: flex;
+        }
+
+        .pay-modal {
+            background: linear-gradient(135deg, #002244, #003366);
+            border: 2px solid #00aaff;
+            border-radius: 20px;
+            padding: 35px 30px;
+            text-align: center;
+            box-shadow: 0 0 40px rgba(0, 170, 255, 0.4);
+            max-width: 320px;
+            width: 90%;
+        }
+
+        .pay-modal h3 {
+            color: #ffffff;
+            text-shadow: 0 0 10px #00aaff;
+            margin: 0 0 8px 0;
+            font-size: 1.1em;
+        }
+
+        .pay-modal p {
+            color: #66d9ff;
+            margin: 0 0 24px 0;
+            font-size: 0.85em;
+        }
+
+        .pay-modal-btns {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .btn-whatsapp {
+            background: linear-gradient(45deg, #25d366, #128c7e);
+            box-shadow: 0 0 15px rgba(37, 211, 102, 0.5);
+            width: 100%;
+        }
+
+        .btn-whatsapp:hover {
+            box-shadow: 0 0 25px rgba(37, 211, 102, 0.8);
+        }
+
+        .btn-paypal {
+            background: linear-gradient(45deg, #009cde, #003087);
+            box-shadow: 0 0 15px rgba(0, 156, 222, 0.5);
+            width: 100%;
+        }
+
+        .btn-paypal:hover {
+            box-shadow: 0 0 25px rgba(0, 156, 222, 0.8);
+        }
+
+        .btn-comprobante {
+            background: linear-gradient(45deg, #00aa66, #007744);
+            box-shadow: 0 0 15px rgba(0, 170, 102, 0.5);
+            width: 100%;
+        }
+
+        .btn-comprobante:hover {
+            box-shadow: 0 0 25px rgba(0, 170, 102, 0.8);
+        }
+
+        .btn-cancel {
+            background: transparent;
+            border: 1px solid #00aaff;
+            box-shadow: none;
+            color: #aaaaaa;
+            font-size: 0.85em;
+            padding: 8px;
+        }
+
+        .btn-cancel:hover {
+            background: rgba(0,170,255,0.1);
+            box-shadow: none;
+            transform: none;
+        }
+
+        .whatsapp-float {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #25d366, #128c7e);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            box-shadow: 0 0 12px #25d366, 0 0 24px #25d366, 0 0 4px #fff inset;
+            z-index: 1200;
+            transition: transform 0.2s ease;
+            animation: gamingPulseWA 2s ease-in-out infinite;
+            border: 2px solid rgba(37, 211, 102, 0.6);
+        }
+
+        .whatsapp-float:hover {
+            transform: translateY(-3px) scale(1.12);
+            box-shadow: 0 0 20px #25d366, 0 0 45px #25d366, 0 0 8px #fff inset;
+        }
+
+        .whatsapp-float svg {
+            width: 30px;
+            height: 30px;
+            fill: currentColor;
+            filter: drop-shadow(0 0 4px #fff);
+        }
+
+        @keyframes gamingPulseWA {
+            0%, 100% { box-shadow: 0 0 10px #25d366, 0 0 20px #25d366; }
+            50% { box-shadow: 0 0 18px #25d366, 0 0 40px #25d366, 0 0 60px rgba(37,211,102,0.3); }
+        }
+
+        .discord-float {
+            position: fixed;
+            right: 18px;
+            bottom: 86px;
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #5865f2, #3b44a8);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            box-shadow: 0 0 12px #5865f2, 0 0 24px #5865f2, 0 0 4px #fff inset;
+            z-index: 1200;
+            transition: transform 0.2s ease;
+            animation: gamingPulseDC 2s ease-in-out infinite 0.4s;
+            border: 2px solid rgba(88, 101, 242, 0.6);
+        }
+
+        .discord-float:hover {
+            transform: translateY(-3px) scale(1.12);
+            box-shadow: 0 0 20px #5865f2, 0 0 45px #5865f2, 0 0 8px #fff inset;
+        }
+
+        .discord-float svg {
+            width: 30px;
+            height: 30px;
+            fill: currentColor;
+            filter: drop-shadow(0 0 4px #fff);
+        }
+
+        @keyframes gamingPulseDC {
+            0%, 100% { box-shadow: 0 0 10px #5865f2, 0 0 20px #5865f2; }
+            50% { box-shadow: 0 0 18px #5865f2, 0 0 40px #5865f2, 0 0 60px rgba(88,101,242,0.3); }
+        }
+
+        .tiktok-float {
+            position: fixed;
+            right: 18px;
+            bottom: 154px;
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            background:
+                radial-gradient(circle at 28% 22%, rgba(37, 244, 238, 0.35), rgba(37, 244, 238, 0) 45%),
+                radial-gradient(circle at 78% 76%, rgba(254, 44, 85, 0.4), rgba(254, 44, 85, 0) 50%),
+                linear-gradient(160deg, #080808, #141414 55%, #1f1f1f 100%);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            box-shadow:
+                0 0 12px rgba(254, 44, 85, 0.65),
+                0 0 16px rgba(37, 244, 238, 0.5),
+                0 0 4px rgba(255, 255, 255, 0.9) inset;
+            z-index: 1200;
+            transition: transform 0.22s ease, box-shadow 0.22s ease;
+            animation: gamingPulseTK 2s ease-in-out infinite 0.8s;
+            border: 2px solid rgba(254, 44, 85, 0.75);
+            overflow: visible;
+        }
+
+        .tiktok-float:hover {
+            transform: translateY(-3px) scale(1.13);
+            box-shadow:
+                0 0 20px rgba(254, 44, 85, 0.9),
+                0 0 30px rgba(37, 244, 238, 0.7),
+                0 0 10px rgba(255, 255, 255, 0.95) inset;
+        }
+
+        .tiktok-float svg {
+            width: 28px;
+            height: 28px;
+            fill: currentColor;
+            filter:
+                drop-shadow(-1px 0 0 rgba(37, 244, 238, 0.9))
+                drop-shadow(1px 0 0 rgba(254, 44, 85, 0.9))
+                drop-shadow(0 0 4px rgba(255, 255, 255, 0.9));
+            transform: translateX(0.5px);
+        }
+
+        .tiktok-float::before,
+        .tiktok-float::after {
+            content: '';
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .tiktok-float::before {
+            width: 8px;
+            height: 8px;
+            top: 8px;
+            left: 10px;
+            background: #25f4ee;
+            box-shadow: 0 0 8px rgba(37, 244, 238, 0.9);
+        }
+
+        .tiktok-float::after {
+            width: 7px;
+            height: 7px;
+            right: 10px;
+            bottom: 9px;
+            background: #fe2c55;
+            box-shadow: 0 0 8px rgba(254, 44, 85, 0.9);
+        }
+
+        @keyframes gamingPulseTK {
+            0%, 100% {
+                box-shadow:
+                    0 0 10px rgba(254, 44, 85, 0.6),
+                    0 0 14px rgba(37, 244, 238, 0.45),
+                    0 0 4px rgba(255, 255, 255, 0.85) inset;
+            }
+            50% {
+                box-shadow:
+                    0 0 18px rgba(254, 44, 85, 0.9),
+                    0 0 28px rgba(37, 244, 238, 0.75),
+                    0 0 55px rgba(254, 44, 85, 0.25);
+            }
+        }
+
+        /* Comprobante */
+        #comprobante-section .comprobante-form {
+            background: linear-gradient(135deg, #002244, #003366);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 520px;
+            margin: 0 auto;
+            box-shadow: 0 0 30px rgba(0, 170, 255, 0.2);
+            border: 1px solid #00aaff;
+        }
+
+        input[type="file"] {
+            background: linear-gradient(145deg, #003366, #004488);
+            padding: 10px;
+            cursor: pointer;
+        }
+
+        #comprobanteMsg {
+            min-height: 22px;
+            margin-top: 10px;
+        }
+
+        #historial-section {
+            border-top: 2px solid #00aaff;
+        }
+
+        #userHistorial {
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        .historial-card {
+            background: linear-gradient(145deg, #003366, #004488);
+            border-radius: 15px;
+            padding: 18px;
+            margin: 12px 0;
+            border: 1px solid #00aaff;
+            box-shadow: 0 5px 15px rgba(0, 170, 255, 0.2);
+        }
+
+        .historial-card p {
+            margin: 6px 0;
+        }
+
+        .historial-estado.ok {
+            color: #25d366;
+            font-weight: 700;
+        }
+
+        .historial-estado.wait {
+            color: #66d9ff;
+            font-weight: 700;
+        }
+
+        .historial-estado.rej {
+            color: #ff7777;
+            font-weight: 700;
+        }
+
+        .historial-aprobado {
+            color: #25d366;
+            font-weight: 700;
+            margin-top: 10px !important;
+        }
+
+        .btn-entrega {
+            display: inline-block;
+            width: 100%;
+            text-align: center;
+            text-decoration: none;
+            color: #ffffff;
+            border-radius: 22px;
+            padding: 12px 18px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: linear-gradient(45deg, #25d366, #128c7e);
+            box-shadow: 0 0 15px rgba(37, 211, 102, 0.45);
+            margin-top: 8px;
+            transition: all 0.25s ease;
+        }
+
+        .btn-entrega:hover {
+            transform: scale(1.03);
+            box-shadow: 0 0 24px rgba(37, 211, 102, 0.75);
+        }
+
+        /* Admin panel */
+        #admin-panel {
+            border-top: 2px solid #00aaff;
+        }
+
+        .comprobante-card {
+            background: linear-gradient(145deg, #003366, #004488);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 15px 0;
+            border: 1px solid #00aaff;
+            box-shadow: 0 5px 15px rgba(0, 170, 255, 0.2);
+        }
+
+        .comprobante-card p {
+            margin: 5px 0;
+        }
+
+        .comprobante-img {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 10px;
+            border: 2px solid #00aaff;
+            margin-top: 10px;
+            display: block;
+            box-shadow: 0 0 15px rgba(0, 170, 255, 0.3);
+        }
+
+        .comp-estado {
+            color: #66d9ff;
+            margin-top: 8px !important;
+        }
+
+        .btn-aprobar {
+            width: 100%;
+            margin-top: 12px;
+            background: linear-gradient(45deg, #25d366, #149353);
+            box-shadow: 0 0 15px rgba(37, 211, 102, 0.45);
+        }
+
+        .btn-aprobar:hover {
+            box-shadow: 0 0 24px rgba(37, 211, 102, 0.75);
+        }
+
+        .admin-actions {
+            display: grid;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .btn-rechazar {
+            width: 100%;
+            background: linear-gradient(45deg, #d12f2f, #9f1f1f);
+            box-shadow: 0 0 15px rgba(209, 47, 47, 0.45);
+        }
+
+        .btn-rechazar:hover {
+            box-shadow: 0 0 24px rgba(209, 47, 47, 0.75);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>NENE IOS</h1>
+        <p>Tu portal definitivo de productos digitales para iOS</p>
+        <button id="logoutBtn" style="display:none; margin-top: 20px;">Cerrar Sesión</button>
+    </header>
+
+    <section id="login">
+        <h2>Cuenta NENE IOS</h2>
+        <div class="auth-toggle">
+            <button type="button" id="showRegister">Crear Cuenta</button>
+            <button type="button" id="showLogin">Iniciar Sesión</button>
+        </div>
+        <div class="auth-message" id="authMessage">si no tienes una cuenta crea una aqui</div>
+        <form id="registerForm" class="auth-form" action="#" method="post">
+            <div class="form-group">
+                <label for="name">Nombre completo:</label>
+                <input type="text" id="name" name="name" placeholder="Tu nombre completo" required>
+            </div>
+            <div class="form-group">
+                <label for="email">Gmail:</label>
+                <input type="email" id="email" name="email" placeholder="tuemail@gmail.com" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Contraseña:</label>
+                <input type="password" id="password" name="password" placeholder="Crea tu contraseña" required>
+            </div>
+            <div class="form-group">
+                <label for="countryCode">Código de País:</label>
+                <select id="countryCode" name="countryCode" required>
+                    <option value="+1">🇺🇸 +1 (Estados Unidos)</option>
+                    <option value="+52">🇲🇽 +52 (México)</option>
+                    <option value="+57">🇨🇴 +57 (Colombia)</option>
+                    <option value="+58">🇻🇪 +58 (Venezuela)</option>
+                    <option value="+53">🇨🇺 +53 (Cuba)</option>
+                    <option value="+1">🇨🇦 +1 (Canadá)</option>
+                    <option value="+44">🇬🇧 +44 (Reino Unido)</option>
+                    <option value="+34">🇪🇸 +34 (España)</option>
+                    <option value="+55">🇧🇷 +55 (Brasil)</option>
+                    <option value="+54">🇦🇷 +54 (Argentina)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="phone">Número de Teléfono:</label>
+                <input type="tel" id="phone" name="phone" placeholder="Número sin código de país" required>
+            </div>
+            <button type="submit">Crear Cuenta</button>
+        </form>
+        <form id="loginForm" class="auth-form active" action="#" method="post">
+            <div class="form-group">
+                <label for="loginUser">Correo electrónico:</label>
+                <input type="email" id="loginUser" name="loginUser" placeholder="tuemail@gmail.com" required>
+            </div>
+            <div class="form-group">
+                <label for="loginPassword">Contraseña:</label>
+                <input type="password" id="loginPassword" name="loginPassword" placeholder="Tu contraseña" required>
+            </div>
+            <button type="submit">Iniciar Sesión</button>
+        </form>
+    </section>
+
+    <div id="mainContent">
+        <section id="productos">
+        <h2>NUESTROS PRODUCTOS</h2>
+        <div class="products">
+            <div class="product">
+                <video controls autoplay muted loop playsinline poster="placeholder.jpg">
+                    <source src="WhatsApp Video 2026-04-07 at 8.38.19 PM.mp4" type="video/mp4">
+                    Tu navegador no soporta este video.
+                </video>
+                <h3>aimbot indrag disimulado</h3>
+                <p>Descripción del producto.</p>
+                <p>Precio: $40.00</p>
+                <p>Duración: 1 mes</p>
+                <button onclick="abrirModal('aimbot indrag disimulado','https://wa.me/18098642863?text=Hola,%20quiero%20comprar%20aimbot%20indrag%20disimulado','https://paypal.me/SebastianF508/40')">Comprar</button>
+            </div>
+            <div class="product featured-card">
+                <video controls autoplay muted loop playsinline poster="placeholder.jpg">
+                    <source src="WhatsApp Video 2026-04-07 at 8.40.16 PM.mp4" type="video/mp4">
+                    Tu navegador no soporta este video.
+                </video>
+                <h3>disimulado pecho</h3>
+                <p>Descripción del producto.</p>
+                <p>Precio: $40.00</p>
+                <p>Duración: 30 días</p>
+                <button onclick="abrirModal('disimulado pecho','https://wa.me/18098642863?text=Hola,%20quiero%20comprar%20disimulado%20pecho','https://paypal.me/SebastianF508/40')">Comprar</button>
+            </div>
+            <div class="product">
+                <video controls autoplay muted loop playsinline poster="placeholder.jpg">
+                    <source src="WhatsApp Video 2026-04-07 at 8.43.43 PM.mp4" type="video/mp4">
+                    Tu navegador no soporta este video.
+                </video>
+                <h3>aimbot cuello</h3>
+                <p>Descripción del producto.</p>
+                <p>Precio: $40.00</p>
+                <p>Duración: 1 mes</p>
+                <button onclick="abrirModal('aimbot cuello','https://wa.me/18098642863?text=Hola,%20quiero%20comprar%20aimbot%20cuello','https://paypal.me/SebastianF508/40')">Comprar</button>
+            </div>
+            <div class="product">
+                <video controls autoplay muted loop playsinline poster="placeholder.jpg">
+                    <source src="WhatsApp Video 2026-04-07 at 8.38.19 PM.mp4" type="video/mp4">
+                    Tu navegador no soporta este video.
+                </video>
+                <h3>aimbot indrag disimulado 25 dias</h3>
+                <p>Descripción del producto.</p>
+                <p>Precio: $35.00</p>
+                <p>Duración: 25 días</p>
+                <button onclick="abrirModal('aimbot indrag disimulado 25 dias','https://wa.me/18098642863?text=Hola,%20quiero%20comprar%20aimbot%20indrag%20disimulado%2025%20dias','https://paypal.me/SebastianF508/35')">Comprar</button>
+            </div>
+            <div class="product featured-card">
+                <video controls autoplay muted loop playsinline poster="placeholder.jpg">
+                    <source src="WhatsApp Video 2026-04-07 at 8.40.16 PM.mp4" type="video/mp4">
+                    Tu navegador no soporta este video.
+                </video>
+                <h3>disimulado pecho 25 dias</h3>
+                <p>Descripción del producto.</p>
+                <p>Precio: $35.00</p>
+                <p>Duración: 25 días</p>
+                <button onclick="abrirModal('disimulado pecho 25 dias','https://wa.me/18098642863?text=Hola,%20quiero%20comprar%20disimulado%20pecho%2025%20dias','https://paypal.me/SebastianF508/35')">Comprar</button>
+            </div>
+            <div class="product">
+                <video controls autoplay muted loop playsinline poster="placeholder.jpg">
+                    <source src="WhatsApp Video 2026-04-07 at 8.43.43 PM.mp4" type="video/mp4">
+                    Tu navegador no soporta este video.
+                </video>
+                <h3>aimbot cuello 25 dias</h3>
+                <p>Descripción del producto.</p>
+                <p>Precio: $35.00</p>
+                <p>Duración: 25 días</p>
+                <button onclick="abrirModal('aimbot cuello 25 dias','https://wa.me/18098642863?text=Hola,%20quiero%20comprar%20aimbot%20cuello%2025%20dias','https://paypal.me/SebastianF508/35')">Comprar</button>
+            </div>
+            <!-- Agregar más productos -->
+        </div>
+    </section>
+
+    <section id="comprobante-section" style="display:none;">
+        <h2>SUBIR COMPROBANTE</h2>
+        <div class="comprobante-form">
+            <div class="form-group">
+                <label for="comprobanteProducto">Producto comprado:</label>
+                <select id="comprobanteProducto">
+                    <option value="aimbot indrag disimulado">Aimbot Indrag Disimulado - $40</option>
+                    <option value="disimulado pecho">Disimulado Pecho - $40</option>
+                    <option value="aimbot cuello">Aimbot Cuello - $40</option>
+                    <option value="aimbot indrag disimulado 25 dias">Aimbot Indrag Disimulado - 25 días - $35</option>
+                    <option value="disimulado pecho 25 dias">Disimulado Pecho - 25 días - $35</option>
+                    <option value="aimbot cuello 25 dias">Aimbot Cuello - 25 días - $35</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="comprobanteFile">Foto del comprobante:</label>
+                <input type="file" id="comprobanteFile" accept="image/*">
+            </div>
+            <button id="subirComprobanteBtn">Subir Comprobante</button>
+            <p id="comprobanteMsg"></p>
+        </div>
+    </section>
+
+    <section id="historial-section">
+        <h2>HISTORIAL DE COMPRAS</h2>
+        <div id="userHistorial"><p style="color:#66d9ff;">Aquí verás tus compras y estado.</p></div>
+    </section>
+
+    <section id="admin-panel" style="display:none;">
+        <h2>⚙️ ADMIN - COMPROBANTES</h2>
+        <div id="adminComprobantes"><p>Cargando...</p></div>
+    </section>
+
+    <section id="testimonios" class="testimonials">
+        <h2>TESTIMONIOS REALES</h2>
+        <div class="testimonial">
+            <p>"Excelente servicio!"</p>
+              <p>- Ronal IOS</p>
+        </div>
+        <div class="testimonial">
+            <p>"Muy recomendado."</p>
+            <p>- Delivis IOS</p>
+        </div>
+    </section>
+
+    <section id="porque-elegirnos">
+        <h2>POR QUÉ ELEGIRNOS</h2>
+        <ul>
+            <li>Entrega Instantánea</li>
+            <li>100% Seguro</li>
+            <li>Soporte 24/7</li>
+            <li>Mejores Precios</li>
+        </ul>
+    </section>
+
+    <footer>
+        <p>&copy; 2026 NENE IOS. Todos los derechos reservados.</p>
+    </footer>
+    </div>
+
+    <!-- Modal de pago -->
+    <div class="pay-modal-overlay" id="payModal" onclick="cerrarModal(event)">
+        <div class="pay-modal">
+            <h3 id="modalProducto"></h3>
+            <p>¿Cómo quieres pagar?</p>
+            <div class="pay-modal-btns">
+                <a id="modalWA" href="#" target="_blank" rel="noopener noreferrer"><button class="btn-whatsapp">💬 WhatsApp</button></a>
+                <a id="modalPP" href="#" target="_blank" rel="noopener noreferrer"><button class="btn-paypal">💳 PayPal</button></a>
+                <button class="btn-comprobante" onclick="abrirComprobante()">📎 Ya pagué - Subir Comprobante</button>
+                <button class="btn-cancel" onclick="document.getElementById('payModal').classList.remove('active')">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let _modalProducto = '';
+        function abrirModal(nombre, wa, pp) {
+            _modalProducto = nombre;
+            document.getElementById('modalProducto').textContent = nombre;
+            document.getElementById('modalWA').href = wa;
+            document.getElementById('modalPP').href = pp;
+            document.getElementById('payModal').classList.add('active');
+        }
+        function cerrarModal(e) {
+            if (e.target.id === 'payModal') {
+                document.getElementById('payModal').classList.remove('active');
+            }
+        }
+        function abrirComprobante() {
+            document.getElementById('payModal').classList.remove('active');
+            const section = document.getElementById('comprobante-section');
+            section.style.display = 'block';
+            // Pre-select the product
+            const select = document.getElementById('comprobanteProducto');
+            if (select && _modalProducto) {
+                for (let i = 0; i < select.options.length; i++) {
+                    if (select.options[i].value === _modalProducto) {
+                        select.selectedIndex = i;
+                        break;
+                    }
+                }
+            }
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    </script>
+
+    <a class="tiktok-float" href="https://www.tiktok.com/@nene.ios4" target="_blank" rel="noopener noreferrer" aria-label="TikTok" title="TikTok @nene.ios4">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z"/>
+        </svg>
+    </a>
+
+    <a class="discord-float" href="https://discord.com/app" target="_blank" rel="noopener noreferrer" aria-label="Abrir Discord" title="Discord">
+        <svg viewBox="0 0 127.14 96.36" aria-hidden="true">
+            <path d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.24 8.07C2.79 32.65-1.71 56.61.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.13 68.42 68.42 0 0 1-10.85-5.19c.91-.66 1.8-1.34 2.66-2.04a75.57 75.57 0 0 0 64.32 0c.87.7 1.76 1.38 2.66 2.04a68.68 68.68 0 0 1-10.87 5.2 77 77 0 0 0 6.89 11.12A105.25 105.25 0 0 0 126.6 80.2c2.64-27.29-4.5-51.03-18.9-72.13zM42.45 65.69c-6.27 0-11.42-5.73-11.42-12.77s5.04-12.78 11.42-12.78c6.43 0 11.5 5.78 11.42 12.78 0 7.04-5.04 12.77-11.42 12.77zm42.24 0c-6.27 0-11.42-5.73-11.42-12.77s5.04-12.78 11.42-12.78c6.43 0 11.5 5.78 11.42 12.78 0 7.04-5 12.77-11.42 12.77z"/>
+        </svg>
+    </a>
+
+    <a class="whatsapp-float" href="https://wa.me/18098642863" target="_blank" rel="noopener noreferrer" aria-label="Contactar por WhatsApp" title="WhatsApp">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M19.11 17.2c-.27-.14-1.57-.77-1.82-.85-.24-.09-.42-.14-.6.14-.18.27-.69.85-.85 1.03-.16.18-.31.2-.58.07-.27-.14-1.13-.41-2.15-1.31-.8-.71-1.34-1.58-1.5-1.85-.16-.27-.02-.42.12-.56.13-.13.27-.31.4-.47.13-.16.18-.27.27-.45.09-.18.05-.34-.02-.47-.07-.14-.6-1.45-.82-1.99-.22-.53-.44-.45-.6-.46-.16-.01-.34-.01-.52-.01-.18 0-.47.07-.72.34-.24.27-.93.91-.93 2.22 0 1.31.95 2.58 1.08 2.75.13.18 1.87 2.85 4.52 3.99.63.27 1.13.43 1.51.55.63.2 1.2.17 1.65.1.5-.07 1.57-.64 1.79-1.26.22-.62.22-1.15.15-1.26-.07-.11-.24-.18-.51-.31z"/>
+            <path d="M16.03 3.2c-6.99 0-12.66 5.67-12.66 12.66 0 2.23.58 4.32 1.59 6.13L3.2 28.8l6.98-1.74c1.73.94 3.71 1.44 5.85 1.44h.01c6.99 0 12.66-5.67 12.66-12.66 0-3.39-1.32-6.58-3.72-8.98-2.39-2.4-5.58-3.72-8.97-3.72zm0 23.15h-.01c-1.89 0-3.74-.51-5.35-1.47l-.38-.23-4.14 1.03 1.1-4.03-.25-.41a10.43 10.43 0 0 1-1.61-5.56c0-5.75 4.68-10.43 10.44-10.43 2.79 0 5.41 1.09 7.39 3.06a10.39 10.39 0 0 1 3.05 7.38c0 5.76-4.68 10.44-10.44 10.44z"/>
+        </svg>
+    </a>
+
+</body>
+</html>

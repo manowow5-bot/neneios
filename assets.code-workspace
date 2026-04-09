@@ -1,0 +1,22 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../CHATDEVOZ"
+		},
+		{
+			"path": "../node_modules"
+		},
+		{
+			"path": "../sebas"
+		},
+		{
+			"path": "../www"
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "assets"
+	}
+}
